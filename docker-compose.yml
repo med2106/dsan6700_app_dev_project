@@ -1,0 +1,60 @@
+services:
+  # FastAPI Dog Dating API Service
+  dog-dating-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_PATH=/app/models/trained/dog_compatibility_model.pkl
+      - PREPROCESSOR_PATH=/app/models/trained/preprocessor.pkl
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./models/trained:/app/models/trained:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - pawsible-network
+    depends_on:
+      - redis
+
+  # Streamlit Dog Dating Frontend Service  
+  dog-dating-frontend:
+    build:
+      context: .
+      dockerfile: streamlit_app/Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://dog-dating-api:8000
+      - APP_VERSION=1.0.0
+    depends_on:
+      - dog-dating-api
+    networks:
+      - pawsible-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for Bloom filters and caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - pawsible-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  pawsible-network:
+    driver: bridge

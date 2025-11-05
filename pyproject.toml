@@ -1,0 +1,157 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anythings-pawsible"
+version = "1.0.0"
+description = "ML-powered dog dating application with FastAPI, Streamlit, and advanced matching algorithms"
+authors = [
+    {name = "Trevor Adriaanse", email = "tva7@georgetown.edu"},
+]
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+keywords = ["mlops", "machine-learning", "dog-dating", "recommendation-system", "faiss", "bloom-filter", "fastapi", "streamlit"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# Core dependencies for dog dating ML pipeline
+dependencies = [
+    # Data processing & analysis
+    "pandas>=1.5.3",
+    "numpy>=1.24.3",
+    
+    # Machine learning & recommendation systems
+    "scikit-learn==1.3.2",
+    "xgboost>=1.7.5",
+    "faiss-cpu>=1.7.4",  # Similarity search for dog matching
+    
+    # Image processing & computer vision
+    "pillow>=10.0.0",
+    "opencv-python>=4.8.0",
+    
+    # Advanced ML features
+    "pybloom-live>=4.0.0",  # Bloom filters for profile filtering
+    "datasketch>=1.6.3",    # LSH for duplicate detection
+    
+    # Visualization
+    "matplotlib>=3.7.1",
+    "seaborn>=0.12.2",
+    
+    # Experiment tracking & model management
+    "mlflow>=2.3.1",
+    
+    # Utilities
+    "pyyaml>=6.0",
+    "joblib>=1.3.1",
+    "redis>=4.5.0",  # Cache for bloom filters and sessions
+]
+
+[project.optional-dependencies]
+# API service dependencies
+api = [
+    "fastapi>=0.95.0",
+    "uvicorn>=0.22.0",
+    "pydantic>=1.10.0",
+]
+
+# Frontend service dependencies
+frontend = [
+    "streamlit>=1.24.0",
+    "requests>=2.28.0",
+]
+
+# Development dependencies
+dev = [
+    "pytest>=7.3.1",
+    "ipykernel>=6.29.5",
+    "jupyter>=1.0.0",
+    "black>=22.0.0",
+    "isort>=5.0.0",
+    "flake8>=6.0.0",
+]
+
+# All dependencies combined
+all = [
+    "anythings-pawsible[api,frontend,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/trevoradriaanse/anythings-pawsible"
+Documentation = "https://github.com/trevoradriaanse/anythings-pawsible"
+Repository = "https://github.com/trevoradriaanse/anythings-pawsible"
+Issues = "https://github.com/trevoradriaanse/anythings-pawsible/issues"
+
+[project.scripts]
+# CLI commands for running different parts of the pipeline
+pawsible-process = "src.data.run_processing:main"
+pawsible-features = "src.features.engineer:main"
+pawsible-train = "src.models.train_model:main"
+
+[tool.hatch.build.targets.wheel]
+packages = []
+
+[tool.hatch.build.targets.wheel.force-include]
+"src" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+]
