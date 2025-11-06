@@ -1,1091 +1,243 @@
-import streamlit as st
-import requests
-from PIL import Image
-from datetime import datetime
-import time
 import os
+import json
+from typing import Dict, Any, List
 
-# Set the page configuration (must be the first Streamlit command)
+import pandas as pd
+import pydeck as pdk
+import requests
+import streamlit as st
+
+# ---------------- Page config & global styles ----------------
 st.set_page_config(
-    page_title="Anything's Pawsible - Dog Dating",
+    page_title="Off-the-Beaten-Path Travel Recommender",
+    page_icon="🌍",
     layout="wide",
-    initial_sidebar_state="collapsed",
-    page_icon="🐕",
+    initial_sidebar_state="expanded",
 )
 
-# API Configuration
-API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
-
-# Initialize session state
-if "current_profile_index" not in st.session_state:
-    st.session_state.current_profile_index = 0
-if "sample_profiles" not in st.session_state:
-    st.session_state.sample_profiles = []
-if "matches" not in st.session_state:
-    st.session_state.matches = []
-if "swipe_history" not in st.session_state:
-    st.session_state.swipe_history = []
-if "is_loading" not in st.session_state:
-    st.session_state.is_loading = False
-
-
-# Add loading state management
-def show_loading_spinner(message="Loading..."):
-    """Show a professional loading spinner"""
-    st.markdown(
-        f"""
-    <div style="display: flex; justify-content: center; align-items: center; padding: 2rem;">
-        <div style="
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #ff6b6b;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin-right: 1rem;
-        "></div>
-        <span style="color: #666; font-weight: 500;">{message}</span>
-    </div>
-    <style>
-        @keyframes spin {{
-            0% {{ transform: rotate(0deg); }}
-            100% {{ transform: rotate(360deg); }}
-        }}
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-
-# Professional CSS inspired by Hinge's beautiful design
 st.markdown(
     """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    /* Global Styles */
-    .stApp {
-        background: linear-gradient(135deg, #f3e8ff 0%, #e0e7ff 50%, #f0f4ff 100%);
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .main .block-container {
-        padding-top: 0rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
-    
-    /* Hide Streamlit branding and warning bars */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stAlert > div {display: none;}
-    .stException > div {display: none;}
-    [data-testid="stToolbar"] {display: none;}
-    .stDeployButton {display: none;}
-    [data-testid="stDecoration"] {display: none;}
-    .stActionButton {display: none;}
-    .st-emotion-cache-1544g2d {display: none;}
-    
-    /* Hide orange warning/error bars and all notifications */
-    [data-testid="stNotification"] {display: none !important;}
-    .stAlert {display: none !important;}
-    .stWarning {display: none !important;}
-    .element-container:has(.stAlert) {display: none !important;}
-    .stToast {display: none !important;}
-    div[data-testid="stToast"] {display: none !important;}
-    [data-testid="stStatusWidget"] {display: none !important;}
-    .stSpinner {display: none !important;}
-    div[data-testid="stAlert"] {display: none !important;}
-    div[data-testid="stNotificationContainer"] {display: none !important;}
-    [class*="notification"] {display: none !important;}
-    [class*="alert"] {display: none !important;}
-    [class*="warning"] {display: none !important;}
-    [class*="toast"] {display: none !important;}
-    
-    /* Logo Styling */
-    .logo-container {
-        text-align: center;
-        margin: 2rem 0;
-    }
-    
-    .logo-image {
-        max-width: 300px;
-        height: auto;
-        border-radius: 12px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-    }
-    
-    .app-title {
-        color: #1f2937;
-        font-size: 2.5rem;
-        font-weight: 700;
-        margin: 1rem 0 0.5rem 0;
-        letter-spacing: -0.02em;
-    }
-    
-    .app-subtitle {
-        color: #6b7280;
-        font-size: 1.2rem;
-        font-weight: 500;
-        margin-bottom: 0;
-    }
-    
-    /* Navigation Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background: rgba(139,92,246,0.1);
-        border-radius: 16px;
-        padding: 8px;
-        backdrop-filter: blur(10px);
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        color: #374151;
-        background: transparent;
-        border-radius: 12px;
-        font-weight: 500;
-        padding: 12px 24px;
-        transition: all 0.3s ease;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: rgba(139,92,246,0.2) !important;
-        color: #1f2937 !important;
-        box-shadow: 0 4px 12px rgba(139,92,246,0.2);
-    }
-    
-    /* Professional Card Design */
-    .profile-card {
-        background: white;
-        border-radius: 20px;
-        padding: 0;
-        margin: 2rem auto;
-        max-width: 400px;
-        box-shadow: 0 16px 40px rgba(0,0,0,0.12);
-        overflow: hidden;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    
-    .profile-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-    }
-    
-    .card-image {
-        width: 100%;
-        height: 300px;
-        object-fit: cover;
-        background: linear-gradient(45deg, #f0f2f5, #e1e8ed);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 4rem;
-        color: #bbb;
-    }
-    
-    .card-content {
-        padding: 24px;
-    }
-    
-    .dog-name {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #1a1a1a;
-        margin-bottom: 0.5rem;
-        letter-spacing: -0.01em;
-    }
-    
-    .dog-breed {
-        font-size: 1.1rem;
-        color: #666;
-        margin-bottom: 1.5rem;
-        font-weight: 500;
-    }
-    
-    .dog-stats {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 16px;
-        margin: 20px 0;
-    }
-    
-    .stat-item {
-        background: #f8f9fa;
-        padding: 16px;
-        border-radius: 12px;
-        text-align: center;
-        border: 1px solid #e9ecef;
-        transition: background 0.2s ease;
-    }
-    
-    .stat-item:hover {
-        background: #f1f3f4;
-    }
-    
-    .stat-label {
-        font-weight: 600;
-        color: #495057;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
-    }
-    
-    .stat-value {
-        color: #ff6b6b;
-        font-size: 1.2rem;
-        font-weight: 700;
-    }
-    
-    .dog-description {
-        font-style: italic;
-        color: #666;
-        line-height: 1.6;
-        margin: 20px 0;
-        font-size: 1rem;
-        background: #f8f9fa;
-        padding: 16px;
-        border-radius: 12px;
-        border-left: 4px solid #ff6b6b;
-    }
-    
-    .location-info {
-        color: #888;
-        font-size: 0.95rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        font-weight: 500;
-    }
-    
-    /* Professional Swipe Buttons */
-    .swipe-container {
-        display: flex;
-        justify-content: center;
-        gap: 20px;
-        margin: 24px 0;
-        padding: 0 24px;
-    }
-    
-    .swipe-btn {
-        width: 80px;
-        height: 80px;
-        border-radius: 50%;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 2rem;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-    }
-    
-    .pass-btn {
-        background: linear-gradient(135deg, #95a5a6, #7f8c8d);
-        color: white;
-    }
-    
-    .pass-btn:hover {
-        transform: scale(1.1);
-        box-shadow: 0 12px 25px rgba(0,0,0,0.2);
-    }
-    
-    .like-btn {
-        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-        color: white;
-    }
-    
-    .like-btn:hover {
-        transform: scale(1.1);
-        box-shadow: 0 12px 25px rgba(255,107,107,0.4);
-    }
-    
-    /* Compatibility Score */
-    .compatibility-score {
-        font-size: 2.5rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin: 16px 0;
-        letter-spacing: -0.02em;
-    }
-    
-    /* Form Styling */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > select,
-    .stTextArea > div > div > textarea {
-        border-radius: 12px !important;
-        border: 2px solid #e9ecef !important;
-        font-family: 'Inter', sans-serif !important;
-        transition: border-color 0.3s ease !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > div > select:focus,
-    .stTextArea > div > div > textarea:focus {
-        border-color: #ff6b6b !important;
-        box-shadow: 0 0 0 3px rgba(255,107,107,0.1) !important;
-    }
-    
-    /* Professional Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #ff6b6b, #ee5a52) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        font-family: 'Inter', sans-serif !important;
-        padding: 12px 24px !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 4px 12px rgba(255,107,107,0.3) !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(255,107,107,0.4) !important;
-    }
-    
+/* Typography & container */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+html, body, [class*="css"]  { font-family: 'Inter', sans-serif; }
+.main .block-container { padding-top: 1rem; padding-bottom: 4rem; max-width: 1200px; }
 
-    
-    /* Progress Bar */
-    .stProgress > div > div > div {
-        background: linear-gradient(135deg, #ff6b6b, #ee5a52) !important;
-        border-radius: 10px !important;
-    }
-    
-    /* Content Cards */
-    .content-card {
-        background: white;
-        border-radius: 16px;
-        padding: 32px;
-        margin: 24px 0;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-        border: 1px solid rgba(255,255,255,0.2);
-    }
-    
-    /* Metrics */
-    .metric-card {
-        background: rgba(255,255,255,0.95);
-        border-radius: 16px;
-        padding: 24px;
-        text-align: center;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-        border: 1px solid rgba(255,255,255,0.2);
-        transition: transform 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-2px);
-    }
-    
-    /* Footer */
-    .footer {
-        text-align: center;
-        color: rgba(255,255,255,0.8);
-        margin-top: 3rem;
-        padding: 2rem;
-        font-size: 0.9rem;
-        border-top: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    /* Responsive Design */
-    @media (max-width: 768px) {
-        .app-title {
-            font-size: 2rem;
-        }
-        
-        .app-subtitle {
-            font-size: 1rem;
-        }
-        
-        .profile-card {
-            margin: 1rem;
-            max-width: 100%;
-        }
-        
-        .dog-stats {
-            grid-template-columns: 1fr;
-        }
-    }
+/* Hide Streamlit chrome */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* Hero */
+.app-hero {
+  text-align:center; padding: 1.25rem 0 0.25rem 0;
+}
+.app-hero h1 {
+  margin: 0; font-weight: 800; letter-spacing: -0.02em;
+}
+.app-hero p {
+  color: #6b7280; margin: .25rem 0 0 0;
+}
+
+/* Pills & chips */
+.pill {
+  display:inline-block; padding: .2rem .6rem; border-radius: 999px;
+  background: #eef2ff; color:#3730a3; font-size:.8rem; font-weight:600; margin-right:.35rem;
+  border: 1px solid #e0e7ff;
+}
+.badge {
+  display:inline-block; padding:.15rem .5rem; border-radius:8px; background:#f8fafc; border:1px solid #e5e7eb;
+  font-size:.8rem; color:#334155; font-weight:600; margin-right:.25rem;
+}
+
+/* Card */
+.card {
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 18px 18px 14px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.05); margin-bottom: 14px;
+}
+.card .title { font-size: 1.05rem; font-weight: 800; margin: 0; }
+.card .subtitle { color:#64748b; margin:.15rem 0 .5rem; }
+
+/* Score chips */
+.scorechip { background:#f1f5f9; border:1px solid #e2e8f0; padding:.25rem .55rem; border-radius:10px; font-weight:700; }
+.scorechip .label { color:#64748b; font-weight:600; margin-right:.25rem; }
+
+/* Tabs underline accent */
+.stTabs [data-baseweb="tab"] { font-weight:600; }
+.stTabs [aria-selected="true"] { color:#111827 !important; }
+
+/* CTA button */
+.stButton > button {
+  border-radius: 10px; padding: .6rem 1rem; font-weight:700;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6); border:0;
+}
+.stButton > button:hover { filter: brightness(1.02); transform: translateY(-1px); }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
+# ---------------- Backend config ----------------
+API_URL = os.getenv("API_URL", "http://localhost:8081")
 
-def load_banner():
-    """Load and display the logo at the top of the page"""
-    st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+def _api_search(payload: Dict[str, Any]) -> Dict[str, Any]:
+    r = requests.post(f"{API_URL}/search", json=payload, timeout=25)
+    r.raise_for_status()
+    return r.json()
 
-    # Try different possible paths for the logo
-    logo_paths = [
-        "assets/logo.jpeg",
-        "streamlit_app/assets/logo.jpeg",
-        "../streamlit_app/assets/logo.jpeg",
-    ]
+# ---------------- Sidebar ----------------
+st.sidebar.header("Query & Filters")
+q = st.sidebar.text_area(
+    "Describe what you want:",
+    placeholder="e.g., small coastal towns in Spain with artisan markets",
+    height=80,
+)
+c1, c2 = st.sidebar.columns(2)
+with c1: k = st.number_input("Results", 3, 50, 12, 1)
+with c2: min_conf = st.slider("Min confidence", 0.0, 1.0, 0.0, 0.05)
 
-    logo_loaded = False
-    for logo_path in logo_paths:
-        if os.path.exists(logo_path):
-            try:
-                logo = Image.open(logo_path)
-                # Create a column layout to center the logo
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    st.image(logo, use_container_width=True)
-                logo_loaded = True
-                break
-            except Exception:
-                continue
+st.sidebar.subheader("Attributes")
+geo = st.sidebar.multiselect("Geographic type", ["coastal","mountain","island","urban","desert","forest","river","lake"])
+cult = st.sidebar.multiselect("Cultural focus", ["food","art","history","music","markets","festivals","crafts"])
+exp  = st.sidebar.multiselect("Experience tags", ["quiet","nightlife","adventure","local","hiking","kayak","wildlife","scenic","photography"])
 
-    if not logo_loaded:
-        # Fallback with beautiful typography
-        st.markdown(
-            '<h1 class="app-title">🐕 Anything\'s Pawsible</h1>', unsafe_allow_html=True
-        )
-        st.markdown(
-            '<p class="app-subtitle">Find your dog\'s perfect playmate with AI-powered matching</p>',
-            unsafe_allow_html=True,
-        )
+st.sidebar.subheader("Model & Bias Controls")
+model = st.sidebar.selectbox("Retrieval model", ["attribute+context (recommended)","BM25","TF-IDF"], index=0)
+use_bloom = st.sidebar.checkbox("Exclude high-frequency locations (Bloom filter)", True)
+zipf = st.sidebar.slider("Zipf penalty (popularity dampening)", 0.0, 1.0, 0.35, 0.05)
+tier = st.sidebar.checkbox("Frequency tier bucketing", True)
+use_trends = st.sidebar.checkbox("Use Google Trends", False)
+horizon = st.sidebar.selectbox("Time horizon", ["all","1y","90d","30d"], index=1)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+run = st.sidebar.button("🔎 Run search", use_container_width=True)
 
+# ---------------- Hero ----------------
+st.markdown(
+    """
+<div class="app-hero">
+  <h1>🌍 Off-the-Beaten-Path Travel Recommender</h1>
+  <p>Context-aware, attribute-driven suggestions with popularity-bias correction.</p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
-def create_profile_form():
-    """Create dog profile upload form with image and text data"""
-    st.markdown(
-        """
-    <div class="content-card">
-        <h2 style="color: #1a1a1a; margin-bottom: 0.5rem; font-weight: 700;">🐕 Create Your Dog's Profile</h2>
-        <p style="color: #666; margin-bottom: 2rem; font-size: 1.1rem;">Tell us about your furry friend to find their perfect match!</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    with st.form("dog_profile_form"):
-        col1, col2 = st.columns([1, 1])
-
-        with col1:
-            st.subheader("📸 Upload Your Dog's Photo")
-            uploaded_file = st.file_uploader(
-                "Choose your dog's best photo",
-                type=["png", "jpg", "jpeg"],
-                help="Upload a clear photo of your dog",
-            )
-
-            if uploaded_file is not None:
-                image = Image.open(uploaded_file)
-                st.image(image, caption="Your dog's photo", use_container_width=True)
-
-        with col2:
-            st.subheader("📝 Tell Us About Your Dog")
-
-            # Basic Info
-            name = st.text_input("Dog's Name", placeholder="e.g., Buddy")
-            breed = st.selectbox(
-                "Breed",
-                [
-                    "Golden Retriever",
-                    "Labrador Retriever",
-                    "German Shepherd",
-                    "Bulldog",
-                    "Poodle",
-                    "Beagle",
-                    "Border Collie",
-                    "French Bulldog",
-                    "Siberian Husky",
-                    "Yorkshire Terrier",
-                    "Dachshund",
-                    "Mixed Breed",
-                ],
-            )
-
-            col_age, col_weight = st.columns(2)
-            with col_age:
-                age = st.number_input("Age (years)", min_value=0, max_value=20, value=3)
-            with col_weight:
-                weight = st.number_input(
-                    "Weight (lbs)", min_value=1.0, max_value=200.0, value=50.0
-                )
-
-            size = st.selectbox("Size", ["Small", "Medium", "Large"])
-            gender = st.selectbox("Gender", ["Male", "Female"])
-
-            # Personality Traits (1-5 scale)
-            st.subheader("🐾 Personality Traits")
-            energy_level = st.slider(
-                "Energy Level", 1, 5, 3, help="1=Low energy, 5=High energy"
-            )
-            friendliness = st.slider(
-                "Friendliness", 1, 5, 4, help="1=Shy, 5=Very friendly"
-            )
-            playfulness = st.slider(
-                "Playfulness", 1, 5, 4, help="1=Calm, 5=Very playful"
-            )
-            training_level = st.slider(
-                "Training Level", 1, 5, 3, help="1=Untrained, 5=Well-trained"
-            )
-
-            # Social Preferences
-            st.subheader("🤝 Social Preferences")
-            good_with_dogs = st.checkbox("Gets along with other dogs", value=True)
-            good_with_kids = st.checkbox("Gets along with children", value=True)
-            good_with_cats = st.checkbox("Gets along with cats", value=False)
-
-            # Location
-            location = st.text_input("Location", placeholder="e.g., San Francisco, CA")
-
-            # Description
-            description = st.text_area(
-                "Description",
-                placeholder="Tell us more about your dog's personality, favorite activities, etc.",
-            )
-
-        # Submit button
-        submitted = st.form_submit_button("🚀 Create Profile", use_container_width=True)
-
-        if submitted:
-            if name and breed and location:
-                # Create profile data
-                profile_data = {
-                    "name": name,
-                    "breed": breed,
-                    "age": age,
-                    "size": size,
-                    "gender": gender,
-                    "weight": weight,
-                    "energy_level": energy_level,
-                    "friendliness": friendliness,
-                    "playfulness": playfulness,
-                    "training_level": training_level,
-                    "good_with_dogs": good_with_dogs,
-                    "good_with_kids": good_with_kids,
-                    "good_with_cats": good_with_cats,
-                    "location": location,
-                    "description": description,
-                }
-
-                # Try to create profile via API
-                try:
-                    response = requests.post(
-                        f"{API_BASE_URL}/profile", json=profile_data
-                    )
-                    if response.status_code == 200:
-                        st.success(f"✅ Profile created successfully for {name}!")
-                        st.balloons()
-                    else:
-                        st.error("Failed to create profile. Please try again.")
-                except requests.exceptions.RequestException:
-                    st.warning("API not available. Profile saved locally.")
-                    st.success(f"✅ Profile created for {name}!")
-            else:
-                st.error("Please fill in all required fields (Name, Breed, Location)")
-
-
-def generate_sample_profiles():
-    """Generate sample dog profiles for swiping with real images"""
-    if not st.session_state.sample_profiles:
-        # Get breed-specific sample dog images from our dataset
-        import glob
-
-        # Try different possible paths for dog images
-        possible_paths = [
-            "data/profile_pictures/dogs/",  # Docker container path
-            "../data/profile_pictures/dogs/",  # Local development path
-            "./data/profile_pictures/dogs/",
-        ]
-
-        base_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                base_path = path
-                break
-
-        # Define breed-specific image mappings
-        breed_images = {}
-        if base_path:
-            # Find breed-specific images
-            breed_images = {
-                "Labrador Retriever": glob.glob(f"{base_path}labrador_*.jpg"),
-                "Golden Retriever": glob.glob(f"{base_path}retriever-golden_*.jpg"),
-                "Border Collie": glob.glob(
-                    f"{base_path}rough-collie_*.jpg"
-                ),  # Use rough collie as closest match
-                "French Bulldog": glob.glob(f"{base_path}bulldog-french_*.jpg"),
-                "Beagle": glob.glob(f"{base_path}beagle_*.jpg"),
-            }
-
-        sample_data = [
-            {
-                "name": "Luna",
-                "breed": "Labrador Retriever",
-                "age": 2,
-                "size": "Large",
-                "energy_level": 4,
-                "friendliness": 5,
-                "playfulness": 4,
-                "location": "San Francisco, CA",
-                "description": "Energetic lab who loves swimming and fetch!",
-                "image_path": breed_images.get("Labrador Retriever", [None])[0]
-                if breed_images.get("Labrador Retriever")
-                else None,
-            },
-            {
-                "name": "Charlie",
-                "breed": "Golden Retriever",
-                "age": 4,
-                "size": "Large",
-                "energy_level": 3,
-                "friendliness": 5,
-                "playfulness": 3,
-                "location": "Oakland, CA",
-                "description": "Gentle giant who loves cuddles and walks.",
-                "image_path": breed_images.get("Golden Retriever", [None])[0]
-                if breed_images.get("Golden Retriever")
-                else None,
-            },
-            {
-                "name": "Bella",
-                "breed": "Border Collie",
-                "age": 3,
-                "size": "Medium",
-                "energy_level": 5,
-                "friendliness": 4,
-                "playfulness": 5,
-                "location": "Berkeley, CA",
-                "description": "Super smart and loves agility training!",
-                "image_path": breed_images.get("Border Collie", [None])[0]
-                if breed_images.get("Border Collie")
-                else None,
-            },
-            {
-                "name": "Max",
-                "breed": "French Bulldog",
-                "age": 5,
-                "size": "Small",
-                "energy_level": 2,
-                "friendliness": 5,
-                "playfulness": 3,
-                "location": "San Francisco, CA",
-                "description": "Laid-back Frenchie who loves lounging in the park.",
-                "image_path": breed_images.get("French Bulldog", [None])[0]
-                if breed_images.get("French Bulldog")
-                else None,
-            },
-            {
-                "name": "Daisy",
-                "breed": "Beagle",
-                "age": 1,
-                "size": "Medium",
-                "energy_level": 4,
-                "friendliness": 4,
-                "playfulness": 5,
-                "location": "San Jose, CA",
-                "description": "Young and playful beagle with lots of energy!",
-                "image_path": breed_images.get("Beagle", [None])[0]
-                if breed_images.get("Beagle")
-                else None,
-            },
-        ]
-        st.session_state.sample_profiles = sample_data
-
-
-def display_dog_card(profile):
-    """Display a professional dog profile card for swiping"""
-    # Center the card
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        # Create a container with custom styling
-        with st.container():
-            st.markdown(
-                """
-            <style>
-            .dog-profile-card {
-                background: white;
-                border-radius: 20px;
-                padding: 0;
-                box-shadow: 0 16px 40px rgba(0,0,0,0.12);
-                overflow: hidden;
-                margin: 2rem 0;
-            }
-            .dog-card-header {
-                padding: 20px 20px 10px 20px;
-                text-align: center;
-            }
-            .dog-card-content {
-                padding: 0 20px 20px 20px;
-            }
-            </style>
-            """,
-                unsafe_allow_html=True,
-            )
-
-            # Card container
-            st.markdown('<div class="dog-profile-card">', unsafe_allow_html=True)
-
-            # Show dog image
-            if profile.get("image_path"):
-                # Try different possible paths since we're running from streamlit_app directory
-                possible_image_paths = [
-                    profile["image_path"],  # Original path
-                    f"../{profile['image_path']}"
-                    if not profile["image_path"].startswith("../")
-                    else profile["image_path"],  # Add ../ prefix
-                    profile["image_path"].replace("../", "")
-                    if profile["image_path"].startswith("../")
-                    else f"../{profile['image_path']}",  # Toggle ../ prefix
-                ]
-
-                image_loaded = False
-                for img_path in possible_image_paths:
-                    if os.path.exists(img_path):
-                        try:
-                            dog_image = Image.open(img_path)
-                            # Resize to maintain aspect ratio
-                            dog_image = dog_image.resize(
-                                (400, 300), Image.Resampling.LANCZOS
-                            )
-                            st.image(dog_image, use_container_width=True)
-                            image_loaded = True
-                            break
-                        except Exception:
-                            continue
-
-                if not image_loaded:
-                    st.markdown(
-                        '<div style="text-align: center; font-size: 4rem; padding: 2rem; background: #f8f9fa;">🐕</div>',
-                        unsafe_allow_html=True,
-                    )
-            else:
-                st.markdown(
-                    '<div style="text-align: center; font-size: 4rem; padding: 2rem; background: #f8f9fa;">🐕</div>',
-                    unsafe_allow_html=True,
-                )
-
-            # Dog info header - Make name, breed, and age more prominent
-            st.markdown('<div class="dog-card-header">', unsafe_allow_html=True)
-            st.markdown(
-                f'<h1 style="margin: 0; color: #1a1a1a; font-weight: 800; font-size: 2.8rem; text-align: center;">{profile["name"]}</h1>',
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f'<h3 style="margin: 0.5rem 0; color: #ff6b6b; font-size: 1.3rem; text-align: center; font-weight: 600;">{profile["breed"]}</h3>',
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f'<p style="margin: 0.3rem 0 1.5rem 0; color: #888; font-size: 1.1rem; text-align: center; font-weight: 500;">{profile["age"]} years old</p>',
-                unsafe_allow_html=True,
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # Card content
-            st.markdown('<div class="dog-card-content">', unsafe_allow_html=True)
-
-            # Stats in columns
-            stat_col1, stat_col2 = st.columns(2)
-
-            with stat_col1:
-                st.markdown(
-                    f"""
-                <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; text-align: center; margin-bottom: 8px;">
-                    <div style="font-weight: 600; color: #495057; font-size: 0.8rem; text-transform: uppercase;">Energy</div>
-                    <div style="color: #ff6b6b; font-size: 1.1rem;">{"⚡" * profile["energy_level"]}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown(
-                    f"""
-                <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; text-align: center;">
-                    <div style="font-weight: 600; color: #495057; font-size: 0.8rem; text-transform: uppercase;">Playfulness</div>
-                    <div style="color: #ff6b6b; font-size: 1.1rem;">{"🎾" * profile["playfulness"]}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            with stat_col2:
-                st.markdown(
-                    f"""
-                <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; text-align: center; margin-bottom: 8px;">
-                    <div style="font-weight: 600; color: #495057; font-size: 0.8rem; text-transform: uppercase;">Friendliness</div>
-                    <div style="color: #ff6b6b; font-size: 1.1rem;">{"💖" * profile["friendliness"]}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown(
-                    f"""
-                <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; text-align: center;">
-                    <div style="font-weight: 600; color: #495057; font-size: 0.8rem; text-transform: uppercase;">Size</div>
-                    <div style="color: #ff6b6b; font-size: 1.1rem; font-weight: 700;">{profile["size"]}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            # Description
-            st.markdown(
-                f"""
-            <div style="background: #f8f9fa; padding: 16px; border-radius: 12px; margin: 16px 0; border-left: 4px solid #ff6b6b;">
-                <em style="color: #555; font-size: 1rem; line-height: 1.4;">"{profile["description"]}"</em>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-            # Location
-            st.markdown(
-                f"""
-            <div style="text-align: center; color: #888; font-weight: 500;">
-                📍 {profile["location"]}
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-            st.markdown("</div>", unsafe_allow_html=True)  # Close card-content
-            st.markdown("</div>", unsafe_allow_html=True)  # Close card
-
-
-def swipe_interface():
-    """Swipe-based interface for browsing dog profiles"""
-    st.markdown(
-        """
-    <div class="content-card">
-        <h2 style="color: #1a1a1a; margin-bottom: 0.5rem; font-weight: 700;">💕 Find Your Dog's Match</h2>
-        <p style="color: #666; margin-bottom: 1rem; font-size: 1.1rem;">Swipe through profiles to find your dog's perfect playmate!</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    generate_sample_profiles()
-
-    if st.session_state.current_profile_index >= len(st.session_state.sample_profiles):
-        # Professional completion screen
-        st.markdown(
-            """
-        <div class="content-card" style="text-align: center;">
-            <h2 style="color: #ff6b6b; margin-bottom: 1rem; font-weight: 700;">🎉 Great Job!</h2>
-            <p style="color: #666; font-size: 1.2rem; margin-bottom: 2rem;">You've seen all available profiles!</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        st.balloons()
-
-        # Show match results professionally
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.session_state.matches:
-                st.markdown(
-                    """
-                <div class="content-card">
-                    <h3 style="color: #1a1a1a; margin-bottom: 1rem; font-weight: 600;">💕 Your Matches</h3>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-                for match in st.session_state.matches:
-                    st.markdown(
-                        f"""
-                    <div class="metric-card">
-                        <h4 style="color: #ff6b6b; margin: 0; font-weight: 600;">💕 {match}</h4>
-                        <p style="color: #666; margin: 0.5rem 0 0 0;">It's a match! Time to plan a playdate!</p>
-                    </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
-            else:
-                st.markdown(
-                    """
-                <div class="content-card" style="text-align: center;">
-                    <h3 style="color: #666; margin-bottom: 1rem;">No matches this time</h3>
-                    <p style="color: #888;">Don't worry! There are more profiles to explore.</p>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-        # Reset button
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col2:
-            if st.button("🔄 Start Over", use_container_width=True):
-                st.session_state.current_profile_index = 0
-                st.session_state.matches = []
-                st.session_state.swipe_history = []
-                st.rerun()
-        return
-
-    # Get current profile
-    current_profile = st.session_state.sample_profiles[
-        st.session_state.current_profile_index
-    ]
-
-    # Display profile card
-    display_dog_card(current_profile)
-
-    # Beautiful circular buttons only
-    st.markdown(
-        """
-    <div class="swipe-container">
-        <div class="swipe-btn pass-btn">
-            ✕
-        </div>
-        <div class="swipe-btn like-btn">
-            ❤️
-        </div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # Progress indicator
-    progress = (st.session_state.current_profile_index + 1) / len(
-        st.session_state.sample_profiles
-    )
-    st.progress(progress)
-    st.write(
-        f"Profile {st.session_state.current_profile_index + 1} of {len(st.session_state.sample_profiles)}"
-    )
-
-
-def handle_swipe(action, profile):
-    """Handle swipe action (like or pass)"""
-    # Record the swipe
-    swipe_data = {
-        "profile": profile["name"],
-        "action": action,
-        "timestamp": datetime.now().isoformat(),
+# ---------------- Helpers ----------------
+def payload() -> Dict[str, Any]:
+    m = "attribute+context" if model.startswith("attribute") else ("bm25" if model.lower().startswith("bm25") else "tfidf")
+    return {
+        "query": q.strip(),
+        "filters": {"geotype": geo, "culture": cult, "experience": exp, "min_confidence": float(min_conf)},
+        "retrieval": {
+            "model": m, "use_bloom": bool(use_bloom), "zipf_penalty": float(zipf),
+            "tier_bucketing": bool(tier), "use_trends": bool(use_trends),
+            "date_range": horizon, "k": int(k)
+        }
     }
-    st.session_state.swipe_history.append(swipe_data)
 
-    # If it's a like, add to matches
-    if action == "like":
-        st.session_state.matches.append(profile["name"])
-        st.success(f"💕 You liked {profile['name']}!")
+def score_chip(label: str, value: str) -> str:
+    return f'<span class="scorechip"><span class="label">{label}</span>{value}</span>'
+
+def render_result_card(r: Dict[str, Any], i: int):
+    left, right = st.columns([6, 3])
+    with left:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown(f'<p class="title">{i}. {r["destination"]}</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="subtitle">{r.get("country","")}</p>', unsafe_allow_html=True)
+
+        # Tag pills
+        tags = r.get("tags", [])
+        if tags:
+            st.markdown(" ".join([f'<span class="pill">{t}</span>' for t in tags]), unsafe_allow_html=True)
+
+        # Snippets
+        for s in r.get("snippets", [])[:2]:
+            st.markdown(f"<div style='margin-top:.5rem;color:#334155;'>{s}</div>", unsafe_allow_html=True)
+
+        # Context cues
+        cues = r.get("context_cues", {})
+        pos = ", ".join([f"{k} ×{v}" for k,v in (cues.get('positive') or {}).items()])
+        neg = ", ".join([f"{k} ×{v}" for k,v in (cues.get('negative') or {}).items()])
+        if pos or neg:
+            st.markdown("<hr style='margin:.8rem 0;'>", unsafe_allow_html=True)
+            if pos: st.markdown(f"**Context cues (positive):** {pos}")
+            if neg: st.markdown(f"**Context cues (negative):** {neg}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        chips = [
+            score_chip("Score", f"{r.get('score',0):.2f}"),
+            score_chip("Confidence", f"{r.get('confidence',0):.2f}"),
+            score_chip("Trend", "📈" if (r.get('trend_delta') or 0) > 0.1 else ("📉" if (r.get('trend_delta') or 0) < -0.1 else "➖")),
+        ]
+        st.markdown(" ".join(chips), unsafe_allow_html=True)
+        st.caption("Why this was recommended")
+        st.json(r.get("why", {}))
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------- Run search ----------------
+if "results" not in st.session_state: st.session_state["results"] = None
+
+if run and q.strip():
+    with st.spinner("Searching blogs and ranking destinations…"):
+        try:
+            st.session_state["results"] = _api_search(payload())
+        except Exception as e:
+            st.error(f"API call failed: {e}")
+            st.session_state["results"] = None
+
+results = st.session_state["results"]
+
+tabs = st.tabs(["Results", "Map", "Diagnostics", "About"])
+
+with tabs[0]:
+    if not results:
+        st.info("Run a search from the sidebar to see recommendations.")
     else:
-        st.info(f"👋 You passed on {profile['name']}")
+        st.caption(f"Showing top {len(results.get('results', []))} for: “{results.get('query','')}”")
+        for i, r in enumerate(results.get("results", []), start=1):
+            render_result_card(r, i)
 
-    # Move to next profile
-    st.session_state.current_profile_index += 1
-
-    # Small delay for user feedback
-    time.sleep(0.5)
-    st.rerun()
-
-
-def main():
-    """Main app function"""
-    load_banner()
-
-    # Navigation
-    tab1, tab2, tab3 = st.tabs(["🏠 Home", "📝 Create Profile", "💕 Find Matches"])
-
-    with tab1:
-        # Welcome content without the white card background
-        st.markdown(
-            '<h2 style="color: #1a1a1a; margin: 2rem 0 1rem 0; font-weight: 700; text-align: center;">Welcome to Anything\'s Pawsible! 🐕</h2>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            """
-        <p style="font-size: 1.1rem; color: #555; line-height: 1.6; margin-bottom: 2rem; text-align: center;">
-            The premier dog dating app where furry friends find their perfect playmates using AI-powered compatibility matching!
-        </p>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<h3 style="color: #333; margin-bottom: 1rem; font-weight: 600;">How it works:</h3>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-        <div style="margin-left: 1rem; margin-bottom: 2rem;">
-            <p style="margin: 0.5rem 0; color: #555;"><strong>1. Create a Profile</strong> - Upload your dog's photo and tell us about their personality</p>
-            <p style="margin: 0.5rem 0; color: #555;"><strong>2. Start Swiping</strong> - Browse other dogs and swipe right to like, left to pass</p>
-            <p style="margin: 0.5rem 0; color: #555;"><strong>3. Make Matches</strong> - When two dogs like each other, it's a match!</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<h3 style="color: #333; margin-bottom: 1rem; font-weight: 600;">Get Started:</h3>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-        <div style="margin-left: 1rem; margin-bottom: 2rem;">
-            <p style="margin: 0.5rem 0; color: #555;">• Use the <strong>"Create Profile"</strong> tab to set up your dog's profile</p>
-            <p style="margin: 0.5rem 0; color: #555;">• Use the <strong>"Find Matches"</strong> tab to start swiping and finding compatible dogs</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            """
-        <p style="text-align: center; font-size: 1.1rem; color: #ff6b6b; font-weight: 600; margin-top: 2rem;">
-            Ready to find your dog's new best friend? Let's get started! 🎾
-        </p>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        # Professional metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(
-                """
-            <div class="metric-card">
-                <h3 style="color: #ff6b6b; font-size: 2rem; margin: 0; font-weight: 700;">500+</h3>
-                <p style="color: #555; margin: 0.5rem 0 0 0; font-weight: 500;">Active Profiles</p>
-            </div>
-            """,
-                unsafe_allow_html=True,
+with tabs[1]:
+    if not results:
+        st.info("Run a search first to populate the map.")
+    else:
+        df = pd.DataFrame([
+            {"destination": r["destination"], "country": r.get("country",""), "lat": r.get("lat"), "lon": r.get("lon"),
+             "score": r.get("score"), "confidence": r.get("confidence")}
+            for r in results.get("results", [])
+            if r.get("lat") is not None and r.get("lon") is not None
+        ])
+        if df.empty:
+            st.info("No coordinates available to plot.")
+        else:
+            layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=df,
+                get_position='[lon, lat]',
+                get_radius=60000,
+                pickable=True,
+                radius_scale=1,
+                radius_min_pixels=3,
+                radius_max_pixels=30,
             )
-        with col2:
-            st.markdown(
-                """
-            <div class="metric-card">
-                <h3 style="color: #ff6b6b; font-size: 2rem; margin: 0; font-weight: 700;">1,200+</h3>
-                <p style="color: #555; margin: 0.5rem 0 0 0; font-weight: 500;">Successful Matches</p>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-        with col3:
-            st.markdown(
-                """
-            <div class="metric-card">
-                <h3 style="color: #ff6b6b; font-size: 2rem; margin: 0; font-weight: 700;">3,400+</h3>
-                <p style="color: #555; margin: 0.5rem 0 0 0; font-weight: 500;">Happy Playdates</p>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
+            vs = pdk.ViewState(latitude=float(df.lat.mean()), longitude=float(df.lon.mean()), zoom=2.5)
+            st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=vs,
+                                     tooltip={"text": "{destination}\n{country}\nscore: {score}\nconf: {confidence}"}))
 
-    with tab2:
-        create_profile_form()
+with tabs[2]:
+    if not results:
+        st.info("Run a search first to view diagnostics.")
+    else:
+        st.write("**Resolved parameters**")
+        st.json(results.get("params", {}))
 
-    with tab3:
-        swipe_interface()
-
-
-if __name__ == "__main__":
-    main()
+with tabs[3]:
+    st.write(
+        "This prototype uses context cues (e.g., *hidden gem*, *locals only*), \
+attribute matching (geotype/culture/experience), and popularity dampening \
+(Bloom filter + Zipf-style penalty). Toggle controls in the sidebar and explore the map."
+    )
+    if API_URL:
+        st.caption(f"API_URL: {API_URL}")
