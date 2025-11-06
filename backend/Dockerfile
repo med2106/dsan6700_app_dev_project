@@ -16,21 +16,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (pip’s fine here)
-RUN pip install --upgrade pip wheel && pip install uv
+RUN pip install --upgrade pip
+RUN pip install poetry
+
+COPY pyproject.toml poetry.lock* ./
 
 # --- Dependencies ---
 # Use versions compatible with Pydantic v2 + modern FastAPI
 # (pin within sensible ranges; adjust if you truly need the old stack)
-RUN uv pip install --system --no-cache \
-      "fastapi>=0.115,<1.0" \
-      "uvicorn[standard]>=0.30,<1.0" \
-      "pydantic>=2.7,<3.0" \
-      "numpy>=1.26" \
-      "pandas>=2.2" \
-      "joblib>=1.3" \
-      "scikit-learn>=1.4,<2.0" \
-      "xgboost>=2.0" \
-      "pyyaml>=6.0"
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --no-root
 
 # --- Source code ---
 COPY src/ /app/src/
